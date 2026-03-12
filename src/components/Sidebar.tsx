@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   BarChart3,
@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -23,7 +24,13 @@ const navItems = [
 
 const Sidebar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { logout, username } = useAuth();
 
+  const handleLogout = () => {
+    logout();
+    navigate("/login", { replace: true });
+  };
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 bg-sidebar border-r border-sidebar-border flex flex-col z-50">
       {/* Logo */}
@@ -73,10 +80,12 @@ const Sidebar = () => {
             <span className="text-xs font-bold text-primary">AC</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">Alex Chen</p>
+            <p className="text-sm font-medium text-foreground truncate">{username || "Admin"}</p>
             <p className="text-xs text-muted-foreground">Security Lead</p>
           </div>
-          <LogOut className="w-4 h-4 text-muted-foreground" />
+          <button onClick={handleLogout} className="hover:text-destructive transition-colors">
+            <LogOut className="w-4 h-4 text-muted-foreground" />
+          </button>
         </div>
       </div>
     </aside>
