@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   BarChart3,
@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },

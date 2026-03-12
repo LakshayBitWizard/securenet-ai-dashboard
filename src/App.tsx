@@ -3,7 +3,10 @@ import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/contexts/AuthContext";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import DashboardLayout from "./components/DashboardLayout";
+import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import TrafficAnalysis from "./pages/TrafficAnalysis";
 import UploadDetect from "./pages/UploadDetect";
@@ -20,21 +23,24 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route element={<DashboardLayout />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
-            <Route path="/upload-detect" element={<UploadDetect />} />
-            <Route path="/threat-logs" element={<ThreatLogs />} />
-            <Route path="/model-security" element={<ModelSecurity />} />
-            <Route path="/adversarial-detection" element={<AdversarialDetection />} />
-            <Route path="/model-integrity" element={<ModelIntegrity />} />
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/traffic-analysis" element={<TrafficAnalysis />} />
+              <Route path="/upload-detect" element={<UploadDetect />} />
+              <Route path="/threat-logs" element={<ThreatLogs />} />
+              <Route path="/model-security" element={<ModelSecurity />} />
+              <Route path="/adversarial-detection" element={<AdversarialDetection />} />
+              <Route path="/model-integrity" element={<ModelIntegrity />} />
+            </Route>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
     </TooltipProvider>
   </QueryClientProvider>
 );
