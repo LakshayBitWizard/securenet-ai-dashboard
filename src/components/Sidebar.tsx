@@ -80,10 +80,12 @@ const Sidebar = () => {
             <span className="text-xs font-bold text-primary">AC</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">Alex Chen</p>
+            <p className="text-sm font-medium text-foreground truncate">{username || "Admin"}</p>
             <p className="text-xs text-muted-foreground">Security Lead</p>
           </div>
-          <LogOut className="w-4 h-4 text-muted-foreground" />
+          <button onClick={handleLogout} className="hover:text-destructive transition-colors">
+            <LogOut className="w-4 h-4 text-muted-foreground" />
+          </button>
         </div>
       </div>
     </aside>
