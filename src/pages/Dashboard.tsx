@@ -30,7 +30,9 @@ const Dashboard = () => {
     setLogs((prev) => [pred, ...prev].slice(0, 50));
     setTrafficData((prev) => {
       const t = new Date(pred.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      return [...prev, { time: t, value: Math.floor(Math.random() * 600) + 400 }].slice(-24);
+      const bytes = (pred.src_bytes || 0) + (pred.dst_bytes || 0);
+      const value = Math.max(100, Math.min(bytes, 80000));
+      return [...prev, { time: t, value }].slice(-24);
     });
     setStats((prev) => ({
       traffic: +(prev.traffic + 0.01).toFixed(2),
