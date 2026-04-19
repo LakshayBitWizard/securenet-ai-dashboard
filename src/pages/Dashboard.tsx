@@ -1,10 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
 import Header from "@/components/Header";
 import { TrendingUp, TrendingDown, AlertTriangle, XCircle, CheckCircle } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { fetchPrediction, type PredictionResult } from "@/services/api";
-
-const POLL_INTERVAL = 5000;
+import { useLiveData } from "@/contexts/LiveDataContext";
+import { useMemo } from "react";
 
 const attackColors: Record<string, string> = {
   DoS: "hsl(0, 72%, 55%)",
@@ -22,63 +20,50 @@ const riskToStatus: Record<string, { label: string; color: string }> = {
 };
 
 const Dashboard = () => {
-  const [logs, setLogs] = useState<PredictionResult[]>([]);
-  const [trafficData, setTrafficData] = useState<{ time: string; value: number }[]>([]);
-  const [stats, setStats] = useState({ traffic: 1.2, alerts: 0, blocked: 0 });
+  const { logs, stats, settings } = useLiveData();
 
-  const addPrediction = useCallback((pred: PredictionResult) => {
-    setLogs((prev) => [pred, ...prev].slice(0, 50));
-    setTrafficData((prev) => {
-      const t = new Date(pred.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const bytes = (pred.src_bytes || 0) + (pred.dst_bytes || 0);
-      const value = Math.max(100, Math.min(bytes, 80000));
-      return [...prev, { time: t, value }].slice(-24);
+  const trafficData = useMemo(() => {
+    if (stats?.timeline?.length) return stats.timeline;
+    // fallback: derive from logs
+    const buckets: Record<string, number> = {};
+    [...logs].reverse().slice(-50).forEach((l) => {
+      const t = new Date(l.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      buckets[t] = (buckets[t] || 0) + (l.src_bytes || 0) + (l.dst_bytes || 0);
     });
-    setStats((prev) => ({
-      traffic: +(prev.traffic + 0.01).toFixed(2),
-      alerts: prev.alerts + (pred.risk !== "LOW" ? 1 : 0),
-      blocked: prev.blocked + (pred.risk === "CRITICAL" ? 1 : 0),
-    }));
-  }, []);
+    return Object.entries(buckets).map(([time, value]) => ({ time, value })).slice(-24);
+  }, [stats, logs]);
 
-  useEffect(() => {
-    // initial fetch
-    fetchPrediction().then(addPrediction);
-    const id = setInterval(() => fetchPrediction().then(addPrediction), POLL_INTERVAL);
-    return () => clearInterval(id);
-  }, [addPrediction]);
+  const attackCounts = stats?.attacks || {};
+  const totalAlerts = Object.entries(attackCounts).filter(([k]) => k !== "Normal").reduce((s, [, v]) => s + v, 0);
+  const blocked = (attackCounts.DoS || 0) + (attackCounts.U2R || 0);
+  const totalBytes = logs.reduce((s, l) => s + (l.src_bytes || 0) + (l.dst_bytes || 0), 0);
+  const trafficTB = (totalBytes / 1e12).toFixed(3);
 
-  // Build pie data from logs
-  const attackCounts: Record<string, number> = {};
-  logs.forEach((l) => {
-    if (l.prediction !== "Normal") attackCounts[l.prediction] = (attackCounts[l.prediction] || 0) + 1;
-  });
-  const pieData = Object.entries(attackCounts).map(([name, value]) => ({
-    name,
-    value,
-    color: attackColors[name] || "hsl(210, 15%, 40%)",
-  }));
+  const pieData = Object.entries(attackCounts)
+    .filter(([k]) => k !== "Normal")
+    .map(([name, value]) => ({ name, value, color: attackColors[name] || "hsl(210, 15%, 40%)" }));
   const totalAttacks = pieData.reduce((s, d) => s + d.value, 0);
 
   return (
     <div>
-      <Header title="SecureNet AI" subtitle="Senior SOC Analyst" />
+      <Header
+        title="SecureNet AI"
+        subtitle={`Senior SOC Analyst — ${settings?.mode === "scapy" ? "LIVE CAPTURE" : "DATASET MODE"}`}
+      />
       <div className="p-6 space-y-6">
-        {/* Stat Cards */}
         <div className="grid grid-cols-4 gap-4">
-          <StatCard icon={<TrendingUp className="w-5 h-5 text-primary" />} iconBg="bg-primary/15" label="Total Network Traffic" value={`${stats.traffic} TB`} change="+5.2%" changeUp />
-          <StatCard icon={<AlertTriangle className="w-5 h-5 text-warning" />} iconBg="bg-warning/15" label="Threat Alerts Today" value={String(stats.alerts)} change={stats.alerts > 0 ? `+${stats.alerts}` : "0"} changeUp={stats.alerts > 0} />
-          <StatCard icon={<XCircle className="w-5 h-5 text-destructive" />} iconBg="bg-destructive/15" label="Blocked Attacks" value={String(stats.blocked)} change={stats.blocked > 0 ? `+${stats.blocked}` : "0"} changeUp={false} />
+          <StatCard icon={<TrendingUp className="w-5 h-5 text-primary" />} iconBg="bg-primary/15" label="Total Network Traffic" value={`${trafficTB} TB`} change="+5.2%" changeUp />
+          <StatCard icon={<AlertTriangle className="w-5 h-5 text-warning" />} iconBg="bg-warning/15" label="Threat Alerts Today" value={String(totalAlerts)} change={`+${totalAlerts}`} changeUp={totalAlerts > 0} />
+          <StatCard icon={<XCircle className="w-5 h-5 text-destructive" />} iconBg="bg-destructive/15" label="Blocked Attacks" value={String(blocked)} change={`+${blocked}`} changeUp={false} />
           <StatCard icon={<CheckCircle className="w-5 h-5 text-success" />} iconBg="bg-success/15" label="System Health" value="99.9%" badge="Stable" />
         </div>
 
-        {/* Charts Row */}
         <div className="grid grid-cols-3 gap-4">
           <div className="col-span-2 section-card">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-base font-semibold text-foreground">Network Traffic Over Time</h3>
-                <p className="text-xs text-muted-foreground">Live monitoring — updates every 5s</p>
+                <p className="text-xs text-muted-foreground">Live monitoring — updates every {settings?.refresh_interval || 5}s</p>
               </div>
             </div>
             <ResponsiveContainer width="100%" height={250}>
@@ -132,7 +117,6 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Threat Logs Table */}
         <div className="section-card">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold text-foreground">Recent Threat Logs</h3>
@@ -149,7 +133,7 @@ const Dashboard = () => {
                 const st = riskToStatus[log.risk] || riskToStatus.LOW;
                 const badgeClass = log.risk === "CRITICAL" ? "badge-critical" : log.risk === "HIGH" ? "badge-high" : log.risk === "MEDIUM" ? "badge-medium" : "badge-low";
                 return (
-                  <tr key={i}>
+                  <tr key={log.id ?? i}>
                     <td className="text-muted-foreground font-mono text-xs">{new Date(log.timestamp).toLocaleString()}</td>
                     <td className="text-primary font-mono text-xs">{log.source_ip || "—"}</td>
                     <td>{log.prediction}</td>
