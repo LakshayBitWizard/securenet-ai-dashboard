@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -11,6 +12,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import SettingsDialog from "./SettingsDialog";
 
 const navItems = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -26,6 +28,7 @@ const Sidebar = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout, username } = useAuth();
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const handleLogout = () => {
     logout();
@@ -67,11 +70,12 @@ const Sidebar = () => {
 
       {/* Settings */}
       <div className="px-3 pb-2">
-        <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground hover:bg-secondary hover:text-foreground transition-all w-full">
+        <button onClick={() => setSettingsOpen(true)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-sidebar-foreground hover:bg-secondary hover:text-foreground transition-all w-full">
           <Settings className="w-4.5 h-4.5" />
           Settings
         </button>
       </div>
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
 
       {/* User */}
       <div className="px-3 pb-4">
