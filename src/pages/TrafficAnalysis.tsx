@@ -128,7 +128,7 @@ const TrafficAnalysis = () => {
                 <span>HIGH</span>
               </div>
             </div>
-            <div className="grid grid-cols-24 gap-0.5">
+            <div className="grid grid-cols-[repeat(24,minmax(0,1fr))] gap-0.5">
               {heatmap.map((v, i) => (
                 <div key={i} className="aspect-square rounded-sm" style={{ background: `hsl(185, 80%, 50%, ${v * 0.85 + 0.05})` }} />
               ))}
