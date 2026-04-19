@@ -34,10 +34,23 @@ export const LiveDataProvider = ({ children }: { children: React.ReactNode }) =>
       fetchNotifications(lastNotifIdRef.current),
       fetchStats(),
     ]);
+    const RISK_LEVEL: Record<string, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
+    const threshold = RISK_LEVEL[settings?.alert_threshold || "HIGH"] ?? 2;
+
     if (logsRes.logs.length) {
       lastLogIdRef.current = Math.max(lastLogIdRef.current, logsRes.last_id);
+      // Client-side notification fallback (works even if /notifications fails)
+      const derivedNotifs: NotificationItem[] = logsRes.logs
+        .filter((l) => (RISK_LEVEL[l.risk] ?? 0) >= threshold)
+        .map((l) => ({
+          id: (l.id ?? Date.now()) + Math.random(),
+          timestamp: l.timestamp,
+          source_ip: l.source_ip,
+          prediction: l.prediction,
+          risk: l.risk,
+          message: `${l.risk} ${l.prediction} from ${l.source_ip || "unknown"}`,
+        }));
       setLogs((prev) => {
-        // logsRes.logs is newest-first; merge & dedupe by id
         const merged = [...logsRes.logs, ...prev];
         const seen = new Set<number>();
         const out: PredictionResult[] = [];
@@ -50,13 +63,24 @@ export const LiveDataProvider = ({ children }: { children: React.ReactNode }) =>
         }
         return out;
       });
+      if (derivedNotifs.length) {
+        setNotifications((prev) => {
+          const seen = new Set(prev.map((n) => n.id));
+          const fresh = derivedNotifs.filter((n) => !seen.has(n.id));
+          return [...fresh, ...prev].slice(0, 50);
+        });
+      }
     }
     if (notifRes.notifications.length) {
       lastNotifIdRef.current = Math.max(lastNotifIdRef.current, notifRes.last_id);
-      setNotifications((prev) => [...notifRes.notifications.reverse(), ...prev].slice(0, 50));
+      setNotifications((prev) => {
+        const seen = new Set(prev.map((n) => n.id));
+        const fresh = notifRes.notifications.reverse().filter((n) => !seen.has(n.id));
+        return [...fresh, ...prev].slice(0, 50);
+      });
     }
     if (statsRes) setStats(statsRes);
-  }, []);
+  }, [settings?.alert_threshold]);
 
   // Poll using current refresh_interval
   useEffect(() => {
