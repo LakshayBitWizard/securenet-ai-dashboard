@@ -33,7 +33,12 @@ const Dashboard = () => {
     return Object.entries(buckets).map(([time, value]) => ({ time, value })).slice(-24);
   }, [stats, logs]);
 
-  const attackCounts = stats?.attacks || {};
+  const attackCounts = useMemo(() => {
+    if (stats?.attacks && Object.keys(stats.attacks).length) return stats.attacks;
+    const counts: Record<string, number> = {};
+    logs.forEach((l) => { counts[l.prediction] = (counts[l.prediction] || 0) + 1; });
+    return counts;
+  }, [stats, logs]);
   const totalAlerts = Object.entries(attackCounts).filter(([k]) => k !== "Normal").reduce((s, [, v]) => s + v, 0);
   const blocked = (attackCounts.DoS || 0) + (attackCounts.U2R || 0);
   const totalBytes = logs.reduce((s, l) => s + (l.src_bytes || 0) + (l.dst_bytes || 0), 0);
