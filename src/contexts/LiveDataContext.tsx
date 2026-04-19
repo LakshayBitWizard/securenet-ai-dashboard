@@ -80,7 +80,7 @@ export const LiveDataProvider = ({ children }: { children: React.ReactNode }) =>
       });
     }
     if (statsRes) setStats(statsRes);
-  }, []);
+  }, [settings?.alert_threshold]);
 
   // Poll using current refresh_interval
   useEffect(() => {
