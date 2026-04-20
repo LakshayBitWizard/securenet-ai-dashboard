@@ -212,7 +212,38 @@ def encode_row(row):
     return features
 
 
-def predict_row(row):
+def heuristic_classify(row):
+    """Heuristic classifier for live Scapy flows (no ground-truth label).
+    Maps flow features to one of the 5 NSL-KDD categories."""
+    try:
+        proto = row[1]
+        svc = row[2]
+        flag = row[3]
+        src_b = float(row[4])
+        dst_b = float(row[5])
+        dport = 0
+        # dport hint stored on row via flow; not in standard KDD col, so infer from service
+        # ICMP flood / huge unidirectional → DoS
+        if proto == "icmp" and src_b > 5000:
+            return "DoS"
+        if flag in ("S0", "REJ") and src_b > 0 and dst_b == 0:
+            # half-open / rejected connections → Probe (port scan)
+            return "Probe"
+        if svc in ("private", "other") and src_b > 0 and dst_b == 0:
+            return "Probe"
+        if svc in ("ftp", "ftp_data", "telnet", "ssh", "smtp", "pop_3", "imap4") and src_b > 100:
+            # auth-service traffic with payload → R2L attempt
+            return "R2L"
+        if svc in ("shell", "kshell", "exec", "rje") or (svc == "telnet" and src_b > 5000):
+            return "U2R"
+        if src_b + dst_b > 200000:
+            return "DoS"
+        return "Normal"
+    except Exception:
+        return "Normal"
+
+
+def predict_row(row, live=False):
     raw_label = row[41].strip().lower() if len(row) > 41 else "normal"
     gt = ATTACK_CATEGORY.get(raw_label, "Normal")
     if resnet_model is not None and torch is not None:
@@ -223,7 +254,8 @@ def predict_row(row):
             return idx_to_label.get(idx, "Normal")
         except Exception as e:
             print(f"[SecureNet] inference error: {e}")
-            return gt
+    if live:
+        return heuristic_classify(row)
     return gt
 
 
