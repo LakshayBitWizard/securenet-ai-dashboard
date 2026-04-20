@@ -405,7 +405,7 @@ def _flow_flusher():
         for _, f in ready:
             duration = max(0, now - f["start"])
             row = _flow_to_kdd_row(f, duration)
-            attack = predict_row(row)
+            attack = predict_row(row, live=True)
             result = {
                 "prediction": attack,
                 "risk": RISK_MAP.get(attack, "MEDIUM"),
