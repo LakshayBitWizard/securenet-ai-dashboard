@@ -110,15 +110,14 @@ const riskMap: Record<string, PredictionResult["risk"]> = {
 const ips = ["192.168.1.44", "45.233.12.102", "10.0.0.12", "172.16.254.1", "88.192.4.15", "203.0.113.50"];
 const protos = ["tcp", "udp", "icmp"];
 
+let _demoCursor = 0;
 function generateDemoPrediction(): PredictionResult {
-  const weights = [40, 25, 20, 10, 5];
-  const total = weights.reduce((a, b) => a + b, 0);
-  let r = Math.random() * total;
-  let type = attackTypes[0];
-  for (let i = 0; i < weights.length; i++) {
-    r -= weights[i];
-    if (r <= 0) { type = attackTypes[i]; break; }
-  }
+  // Rotate deterministically through all 5 categories so every one appears,
+  // then add some randomness so it doesn't feel scripted.
+  const rotation = ["Normal", "Normal", "DoS", "Probe", "Normal", "R2L", "Normal", "DoS", "U2R", "Probe"];
+  const type = Math.random() < 0.7
+    ? rotation[_demoCursor++ % rotation.length]
+    : attackTypes[Math.floor(Math.random() * attackTypes.length)];
   return {
     prediction: type,
     risk: riskMap[type],
