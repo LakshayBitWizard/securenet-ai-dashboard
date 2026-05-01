@@ -388,7 +388,7 @@ def _packet_handler(pkt):
         if f is None:
             f = {"start": now, "src_bytes": 0, "dst_bytes": 0, "count": 0,
                  "src": key[0], "dst": key[1], "sport": key[2], "dport": key[3],
-                 "proto": key[4], "flag": "SF"}
+                 "proto": key[4], "flag": "SF", "payload": ""}
             flow_buffer[key] = f
         # crude direction: assume flow's first src is "src"
         if pkt[IP].src == f["src"]:
@@ -401,6 +401,12 @@ def _packet_handler(pkt):
             if tflags & 0x04: f["flag"] = "REJ"
             elif tflags & 0x01: f["flag"] = "SF"
             elif tflags & 0x02: f["flag"] = "S0"
+        # capture small payload sample for app-layer inspection
+        try:
+            if Raw in pkt and len(f["payload"]) < 2048:
+                f["payload"] += bytes(pkt[Raw].load)[:512].decode("utf-8", "ignore")
+        except Exception:
+            pass
 
 
 def _flow_to_kdd_row(f, duration):
