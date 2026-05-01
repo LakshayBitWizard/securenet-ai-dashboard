@@ -345,6 +345,8 @@ def make_prediction_from_dataset():
         "flag": flag,
         "origin": None,
         "source": "dataset",
+        "status": STATUS_MAP.get(RISK_MAP.get(attack, "MEDIUM"), "Under Review"),
+        "destination_ip": random.choice(IPS),
     }
 
 
@@ -353,7 +355,7 @@ def make_prediction_from_dataset():
 # into the same 122-dim vector and pushes predictions.
 scapy_available = False
 try:
-    from scapy.all import sniff, IP, TCP, UDP, ICMP  # noqa
+    from scapy.all import sniff, IP, TCP, UDP, ICMP, Raw  # noqa
     scapy_available = True
 except Exception as e:
     print(f"[SecureNet] Scapy unavailable ({e}). Live capture disabled.")
