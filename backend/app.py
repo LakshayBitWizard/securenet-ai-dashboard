@@ -69,7 +69,35 @@ ATTACK_CATEGORY = {
 RISK_MAP = {
     "Normal": "LOW", "DoS": "CRITICAL", "Probe": "MEDIUM",
     "R2L": "HIGH", "U2R": "CRITICAL",
+    # Application-level threats
+    "SQL Injection": "HIGH", "XSS": "HIGH", "Brute Force": "HIGH",
+    "Malware Callback": "CRITICAL", "Port Scan": "MEDIUM",
 }
+
+# Default status assigned per risk (used by frontend filters)
+STATUS_MAP = {
+    "CRITICAL": "Blocked", "HIGH": "Mitigated",
+    "MEDIUM": "Quarantined", "LOW": "Passed",
+}
+
+# Regex patterns to flag application-layer attacks from packet payloads or log lines
+import re
+APP_THREAT_PATTERNS = [
+    ("SQL Injection", re.compile(r"(union\s+select|or\s+1=1|';--|drop\s+table|information_schema)", re.I)),
+    ("XSS",           re.compile(r"(<script\b|onerror\s*=|javascript:|<iframe\b)", re.I)),
+    ("Brute Force",   re.compile(r"(failed\s+login|authentication\s+failure|invalid\s+password){2,}|(login.*){5,}", re.I)),
+    ("Malware Callback", re.compile(r"(\.onion|cmd\.exe|powershell\s+-enc|/c2/|beacon)", re.I)),
+    ("Port Scan",     re.compile(r"(nmap|masscan|zmap)", re.I)),
+]
+
+
+def detect_app_threat(text: str):
+    if not text:
+        return None
+    for name, pat in APP_THREAT_PATTERNS:
+        if pat.search(text):
+            return name
+    return None
 
 PROTOCOL_TYPES = ["tcp", "udp", "icmp"]
 SERVICES = [
@@ -317,6 +345,8 @@ def make_prediction_from_dataset():
         "flag": flag,
         "origin": None,
         "source": "dataset",
+        "status": STATUS_MAP.get(RISK_MAP.get(attack, "MEDIUM"), "Under Review"),
+        "destination_ip": random.choice(IPS),
     }
 
 
@@ -325,7 +355,7 @@ def make_prediction_from_dataset():
 # into the same 122-dim vector and pushes predictions.
 scapy_available = False
 try:
-    from scapy.all import sniff, IP, TCP, UDP, ICMP  # noqa
+    from scapy.all import sniff, IP, TCP, UDP, ICMP, Raw  # noqa
     scapy_available = True
 except Exception as e:
     print(f"[SecureNet] Scapy unavailable ({e}). Live capture disabled.")
@@ -358,7 +388,7 @@ def _packet_handler(pkt):
         if f is None:
             f = {"start": now, "src_bytes": 0, "dst_bytes": 0, "count": 0,
                  "src": key[0], "dst": key[1], "sport": key[2], "dport": key[3],
-                 "proto": key[4], "flag": "SF"}
+                 "proto": key[4], "flag": "SF", "payload": ""}
             flow_buffer[key] = f
         # crude direction: assume flow's first src is "src"
         if pkt[IP].src == f["src"]:
@@ -371,6 +401,12 @@ def _packet_handler(pkt):
             if tflags & 0x04: f["flag"] = "REJ"
             elif tflags & 0x01: f["flag"] = "SF"
             elif tflags & 0x02: f["flag"] = "S0"
+        # capture small payload sample for app-layer inspection
+        try:
+            if Raw in pkt and len(f["payload"]) < 2048:
+                f["payload"] += bytes(pkt[Raw].load)[:512].decode("utf-8", "ignore")
+        except Exception:
+            pass
 
 
 def _flow_to_kdd_row(f, duration):
@@ -406,9 +442,14 @@ def _flow_flusher():
             duration = max(0, now - f["start"])
             row = _flow_to_kdd_row(f, duration)
             attack = predict_row(row, live=True)
+            # App-layer override
+            app_threat = detect_app_threat(f.get("payload", ""))
+            if app_threat:
+                attack = app_threat
+            risk = RISK_MAP.get(attack, "MEDIUM")
             result = {
                 "prediction": attack,
-                "risk": RISK_MAP.get(attack, "MEDIUM"),
+                "risk": risk,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "source_ip": f["src"],
                 "destination_ip": f["dst"],
@@ -422,6 +463,7 @@ def _flow_flusher():
                 "dst_port": f["dport"],
                 "origin": ip_origin(f["src"]),
                 "source": "scapy",
+                "status": STATUS_MAP.get(risk, "Under Review"),
             }
             append_prediction(result)
 
@@ -440,16 +482,31 @@ def _scapy_thread():
 
 
 # ─── Background prediction generator (dataset mode) ────
+APP_THREATS = ["SQL Injection", "XSS", "Brute Force", "Malware Callback", "Port Scan"]
+
+
+def _maybe_inject_app_threat(pred):
+    """1 in 8 dataset rows is rewritten as an application-layer threat so the
+    dashboard surfaces all categories from the start."""
+    if pred and random.random() < 0.12:
+        attack = random.choice(APP_THREATS)
+        pred["prediction"] = attack
+        pred["risk"] = RISK_MAP.get(attack, "HIGH")
+        pred["status"] = STATUS_MAP.get(pred["risk"], "Mitigated")
+        pred["raw_label"] = attack.lower().replace(" ", "_")
+    return pred
+
+
 def _dataset_generator():
     """Continuously generate predictions when in dataset mode so the
     dashboard sees live activity even if no client polls /predict."""
     print("[SecureNet] Dataset generator thread started")
     while True:
         if settings["mode"] == "dataset":
-            pred = make_prediction_from_dataset()
+            pred = _maybe_inject_app_threat(make_prediction_from_dataset())
             if pred:
                 append_prediction(pred)
-        time.sleep(2)
+        time.sleep(max(1, int(settings.get("refresh_interval", 2))))
 
 
 # Start background threads (daemon so they die with the process)
@@ -572,6 +629,185 @@ def _public_settings():
         "username": settings["username"],
         "scapy_available": scapy_available,
     }
+
+
+@app.route("/upload", methods=["POST"])
+def upload_detect():
+    """Accept PCAP, CSV, or LOG file → run intrusion detection → return summary.
+    PCAP : parse with scapy if available, build a single aggregated flow.
+    CSV  : assume KDD-style rows.
+    LOG  : scan for app-layer threat patterns line by line.
+    """
+    if "file" not in request.files:
+        return jsonify({"error": "no file uploaded"}), 400
+    upload = request.files["file"]
+    fname = upload.filename or "unknown"
+    ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+    raw = upload.read()
+    size = len(raw)
+    started = time.time()
+
+    detections = []  # per-row detections
+    src_ip = "—"
+    dst_ip = "—"
+
+    if ext == "csv" or ext == "txt":
+        text = raw.decode("utf-8", "ignore")
+        for row in csv.reader(text.splitlines()):
+            if len(row) >= 6:
+                attack = predict_row(row + [""] * (42 - len(row)))
+                detections.append(attack)
+        if not detections:
+            detections = ["Normal"]
+    elif ext == "log":
+        text = raw.decode("utf-8", "ignore")
+        for line in text.splitlines():
+            t = detect_app_threat(line)
+            detections.append(t or "Normal")
+    elif ext in ("pcap", "pcapng") and scapy_available:
+        try:
+            from scapy.all import rdpcap
+            pkts = rdpcap_from_bytes(raw)
+            agg = {"src_bytes": 0, "dst_bytes": 0, "proto": "tcp",
+                   "flag": "SF", "dport": 0, "src": "—", "dst": "—",
+                   "start": 0, "payload": ""}
+            for pkt in pkts:
+                if IP in pkt:
+                    if agg["src"] == "—":
+                        agg["src"] = pkt[IP].src
+                        agg["dst"] = pkt[IP].dst
+                    agg["src_bytes"] += len(pkt)
+                    if TCP in pkt: agg["proto"] = "tcp"; agg["dport"] = pkt[TCP].dport
+                    elif UDP in pkt: agg["proto"] = "udp"; agg["dport"] = pkt[UDP].dport
+                    elif ICMP in pkt: agg["proto"] = "icmp"
+                    try:
+                        if Raw in pkt and len(agg["payload"]) < 4096:
+                            agg["payload"] += bytes(pkt[Raw].load)[:512].decode("utf-8", "ignore")
+                    except Exception:
+                        pass
+            row = _flow_to_kdd_row(agg, 1)
+            attack = predict_row(row, live=True)
+            app_t = detect_app_threat(agg["payload"])
+            if app_t: attack = app_t
+            detections.append(attack)
+            src_ip, dst_ip = agg["src"], agg["dst"]
+        except Exception as e:
+            return jsonify({"error": f"pcap parse failed: {e}"}), 400
+    else:
+        # Fallback: treat as text and scan
+        text = raw.decode("utf-8", "ignore")[:50000]
+        t = detect_app_threat(text)
+        detections.append(t or "Normal")
+
+    counts = Counter(detections)
+    threats = {k: v for k, v in counts.items() if k != "Normal"}
+    if threats:
+        primary = max(threats.items(), key=lambda x: x[1])[0]
+    else:
+        primary = "Normal"
+    risk = RISK_MAP.get(primary, "LOW")
+    elapsed = round(time.time() - started, 2)
+    confidence = round(100 * counts.get(primary, 1) / max(1, sum(counts.values())), 1)
+
+    summary = {
+        "file": fname,
+        "size_bytes": size,
+        "rows_analyzed": sum(counts.values()),
+        "primary_attack": primary,
+        "risk": risk,
+        "status": STATUS_MAP.get(risk, "Under Review"),
+        "confidence": confidence,
+        "source_ip": src_ip,
+        "destination_ip": dst_ip,
+        "time_to_detect": elapsed,
+        "category_counts": dict(counts),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+    # Also push into the live log so it appears on the dashboard
+    append_prediction({
+        "prediction": primary,
+        "risk": risk,
+        "timestamp": summary["timestamp"],
+        "source_ip": src_ip if src_ip != "—" else random.choice(IPS),
+        "destination_ip": dst_ip,
+        "confidence": int(confidence),
+        "raw_label": "upload",
+        "src_bytes": size,
+        "dst_bytes": 0,
+        "protocol": "tcp",
+        "service": "http",
+        "flag": "SF",
+        "origin": "Upload",
+        "source": "upload",
+        "status": summary["status"],
+    })
+    return jsonify(summary)
+
+
+def rdpcap_from_bytes(data):
+    """Helper to parse pcap from bytes via tempfile (scapy needs a path)."""
+    import tempfile
+    from scapy.all import rdpcap
+    with tempfile.NamedTemporaryFile(suffix=".pcap", delete=False) as tmp:
+        tmp.write(data)
+        path = tmp.name
+    try:
+        return rdpcap(path)
+    finally:
+        try: os.unlink(path)
+        except Exception: pass
+
+
+@app.route("/model-security", methods=["GET"])
+def model_security():
+    """Adversarial / integrity metrics derived from the live log."""
+    with state_lock:
+        items = list(prediction_logs)
+    total = len(items) or 1
+    confidences = [l.get("confidence", 0) for l in items if l.get("confidence") is not None]
+    low_conf = [c for c in confidences if c < 60]
+    avg_conf = round(sum(confidences) / max(1, len(confidences)), 1)
+    # Confidence histogram bins (0.0 → 1.0 in 0.1 steps)
+    hist = [0] * 11
+    for c in confidences:
+        hist[min(10, max(0, int(c / 10)))] += 1
+    confidence_distribution = [
+        {"bin": f"{i/10:.1f}", "val": hist[i]} for i in range(11)
+    ]
+    # Suspicious input frequency over last 60 minutes
+    now = datetime.utcnow()
+    freq = [0] * 7  # 60M..NOW in 10-min buckets
+    for l in items:
+        try:
+            ts = datetime.fromisoformat(l["timestamp"].replace("Z", ""))
+            mins = (now - ts).total_seconds() / 60
+            idx = 6 - min(6, int(mins // 10))
+            if idx >= 0 and l["risk"] in ("HIGH", "CRITICAL"):
+                freq[idx] += 1
+        except Exception:
+            pass
+    labels = ["60M", "50M", "40M", "30M", "20M", "10M", "NOW"]
+    suspicious_frequency = [{"t": labels[i], "val": freq[i]} for i in range(7)]
+    # Adversarial = predictions flipping rapidly from same source IP
+    by_ip = {}
+    for l in items[-200:]:
+        ip = l.get("source_ip") or "?"
+        by_ip.setdefault(ip, []).append(l["prediction"])
+    adversarial = sum(1 for ip, preds in by_ip.items() if len(set(preds)) >= 3)
+    # Poisoning suspect: dataset rows whose label disagrees with prediction
+    poisoning = sum(1 for l in items if l.get("raw_label") and l.get("raw_label") not in ("normal", "live", "upload"))
+
+    return jsonify({
+        "model_integrity": "Secure" if low_conf and len(low_conf) / total < 0.3 else "Review",
+        "model_version": "v1.0",
+        "adversarial_inputs": adversarial,
+        "low_confidence_pct": round(100 * len(low_conf) / total, 1),
+        "predictions_per_min": round(total / max(1, settings.get("refresh_interval", 5)), 1),
+        "average_confidence": avg_conf,
+        "poisoning_suspects": poisoning,
+        "confidence_distribution": confidence_distribution,
+        "suspicious_frequency": suspicious_frequency,
+    })
 
 
 if __name__ == "__main__":

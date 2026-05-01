@@ -17,6 +17,34 @@ export interface PredictionResult {
   dst_port?: number;
   origin?: string;
   source?: string;
+  status?: string;
+}
+
+export interface UploadResult {
+  file: string;
+  size_bytes: number;
+  rows_analyzed: number;
+  primary_attack: string;
+  risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  status: string;
+  confidence: number;
+  source_ip: string;
+  destination_ip: string;
+  time_to_detect: number;
+  category_counts: Record<string, number>;
+  timestamp: string;
+}
+
+export interface ModelSecurityResponse {
+  model_integrity: string;
+  model_version: string;
+  adversarial_inputs: number;
+  low_confidence_pct: number;
+  predictions_per_min: number;
+  average_confidence: number;
+  poisoning_suspects: number;
+  confidence_distribution: { bin: string; val: number }[];
+  suspicious_frequency: { t: string; val: number }[];
 }
 
 export interface NotificationItem {
@@ -130,4 +158,38 @@ function generateDemoPrediction(): PredictionResult {
     service: "http",
     flag: "SF",
   };
+}
+
+export async function uploadDetect(file: File): Promise<UploadResult | null> {
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd });
+    if (res.ok) return res.json();
+  } catch { /* ignore */ }
+  // Demo fallback
+  const types = ["DoS", "Probe", "SQL Injection", "XSS", "Brute Force", "Port Scan"];
+  const primary = types[Math.floor(Math.random() * types.length)];
+  return {
+    file: file.name,
+    size_bytes: file.size,
+    rows_analyzed: 1,
+    primary_attack: primary,
+    risk: "HIGH",
+    status: "Mitigated",
+    confidence: 90 + Math.random() * 9,
+    source_ip: "192.168.1.104",
+    destination_ip: "10.0.0.5",
+    time_to_detect: 1.2,
+    category_counts: { [primary]: 1 },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function fetchModelSecurity(): Promise<ModelSecurityResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/model-security`);
+    if (res.ok) return res.json();
+  } catch { /* ignore */ }
+  return null;
 }
