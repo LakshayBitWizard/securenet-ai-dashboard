@@ -156,6 +156,8 @@ function generateDemoPrediction(): PredictionResult {
     dst_bytes: Math.floor(Math.random() * 50000),
     protocol: protos[Math.floor(Math.random() * protos.length)],
     service: "http",
+    flag: "SF",
+  };
 }
 
 export async function uploadDetect(file: File): Promise<UploadResult | null> {
