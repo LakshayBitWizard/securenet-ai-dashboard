@@ -69,7 +69,35 @@ ATTACK_CATEGORY = {
 RISK_MAP = {
     "Normal": "LOW", "DoS": "CRITICAL", "Probe": "MEDIUM",
     "R2L": "HIGH", "U2R": "CRITICAL",
+    # Application-level threats
+    "SQL Injection": "HIGH", "XSS": "HIGH", "Brute Force": "HIGH",
+    "Malware Callback": "CRITICAL", "Port Scan": "MEDIUM",
 }
+
+# Default status assigned per risk (used by frontend filters)
+STATUS_MAP = {
+    "CRITICAL": "Blocked", "HIGH": "Mitigated",
+    "MEDIUM": "Quarantined", "LOW": "Passed",
+}
+
+# Regex patterns to flag application-layer attacks from packet payloads or log lines
+import re
+APP_THREAT_PATTERNS = [
+    ("SQL Injection", re.compile(r"(union\s+select|or\s+1=1|';--|drop\s+table|information_schema)", re.I)),
+    ("XSS",           re.compile(r"(<script\b|onerror\s*=|javascript:|<iframe\b)", re.I)),
+    ("Brute Force",   re.compile(r"(failed\s+login|authentication\s+failure|invalid\s+password){2,}|(login.*){5,}", re.I)),
+    ("Malware Callback", re.compile(r"(\.onion|cmd\.exe|powershell\s+-enc|/c2/|beacon)", re.I)),
+    ("Port Scan",     re.compile(r"(nmap|masscan|zmap)", re.I)),
+]
+
+
+def detect_app_threat(text: str):
+    if not text:
+        return None
+    for name, pat in APP_THREAT_PATTERNS:
+        if pat.search(text):
+            return name
+    return None
 
 PROTOCOL_TYPES = ["tcp", "udp", "icmp"]
 SERVICES = [
