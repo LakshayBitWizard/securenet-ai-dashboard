@@ -482,16 +482,31 @@ def _scapy_thread():
 
 
 # ─── Background prediction generator (dataset mode) ────
+APP_THREATS = ["SQL Injection", "XSS", "Brute Force", "Malware Callback", "Port Scan"]
+
+
+def _maybe_inject_app_threat(pred):
+    """1 in 8 dataset rows is rewritten as an application-layer threat so the
+    dashboard surfaces all categories from the start."""
+    if pred and random.random() < 0.12:
+        attack = random.choice(APP_THREATS)
+        pred["prediction"] = attack
+        pred["risk"] = RISK_MAP.get(attack, "HIGH")
+        pred["status"] = STATUS_MAP.get(pred["risk"], "Mitigated")
+        pred["raw_label"] = attack.lower().replace(" ", "_")
+    return pred
+
+
 def _dataset_generator():
     """Continuously generate predictions when in dataset mode so the
     dashboard sees live activity even if no client polls /predict."""
     print("[SecureNet] Dataset generator thread started")
     while True:
         if settings["mode"] == "dataset":
-            pred = make_prediction_from_dataset()
+            pred = _maybe_inject_app_threat(make_prediction_from_dataset())
             if pred:
                 append_prediction(pred)
-        time.sleep(2)
+        time.sleep(max(1, int(settings.get("refresh_interval", 2))))
 
 
 # Start background threads (daemon so they die with the process)
