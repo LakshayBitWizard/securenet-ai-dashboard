@@ -17,6 +17,34 @@ export interface PredictionResult {
   dst_port?: number;
   origin?: string;
   source?: string;
+  status?: string;
+}
+
+export interface UploadResult {
+  file: string;
+  size_bytes: number;
+  rows_analyzed: number;
+  primary_attack: string;
+  risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  status: string;
+  confidence: number;
+  source_ip: string;
+  destination_ip: string;
+  time_to_detect: number;
+  category_counts: Record<string, number>;
+  timestamp: string;
+}
+
+export interface ModelSecurityResponse {
+  model_integrity: string;
+  model_version: string;
+  adversarial_inputs: number;
+  low_confidence_pct: number;
+  predictions_per_min: number;
+  average_confidence: number;
+  poisoning_suspects: number;
+  confidence_distribution: { bin: string; val: number }[];
+  suspicious_frequency: { t: string; val: number }[];
 }
 
 export interface NotificationItem {
