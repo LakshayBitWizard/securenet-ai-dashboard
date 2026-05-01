@@ -156,6 +156,38 @@ function generateDemoPrediction(): PredictionResult {
     dst_bytes: Math.floor(Math.random() * 50000),
     protocol: protos[Math.floor(Math.random() * protos.length)],
     service: "http",
-    flag: "SF",
+}
+
+export async function uploadDetect(file: File): Promise<UploadResult | null> {
+  try {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd });
+    if (res.ok) return res.json();
+  } catch { /* ignore */ }
+  // Demo fallback
+  const types = ["DoS", "Probe", "SQL Injection", "XSS", "Brute Force", "Port Scan"];
+  const primary = types[Math.floor(Math.random() * types.length)];
+  return {
+    file: file.name,
+    size_bytes: file.size,
+    rows_analyzed: 1,
+    primary_attack: primary,
+    risk: "HIGH",
+    status: "Mitigated",
+    confidence: 90 + Math.random() * 9,
+    source_ip: "192.168.1.104",
+    destination_ip: "10.0.0.5",
+    time_to_detect: 1.2,
+    category_counts: { [primary]: 1 },
+    timestamp: new Date().toISOString(),
   };
+}
+
+export async function fetchModelSecurity(): Promise<ModelSecurityResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/model-security`);
+    if (res.ok) return res.json();
+  } catch { /* ignore */ }
+  return null;
 }
