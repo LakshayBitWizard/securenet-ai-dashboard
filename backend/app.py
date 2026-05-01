@@ -442,9 +442,14 @@ def _flow_flusher():
             duration = max(0, now - f["start"])
             row = _flow_to_kdd_row(f, duration)
             attack = predict_row(row, live=True)
+            # App-layer override
+            app_threat = detect_app_threat(f.get("payload", ""))
+            if app_threat:
+                attack = app_threat
+            risk = RISK_MAP.get(attack, "MEDIUM")
             result = {
                 "prediction": attack,
-                "risk": RISK_MAP.get(attack, "MEDIUM"),
+                "risk": risk,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "source_ip": f["src"],
                 "destination_ip": f["dst"],
@@ -458,6 +463,7 @@ def _flow_flusher():
                 "dst_port": f["dport"],
                 "origin": ip_origin(f["src"]),
                 "source": "scapy",
+                "status": STATUS_MAP.get(risk, "Under Review"),
             }
             append_prediction(result)
 
