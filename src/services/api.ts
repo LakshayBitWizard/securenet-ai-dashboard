@@ -193,3 +193,26 @@ export async function fetchModelSecurity(): Promise<ModelSecurityResponse | null
   } catch { /* ignore */ }
   return null;
 }
+
+export interface IntegrityResponse {
+  file_name: string;
+  version: string;
+  size_bytes: number;
+  sha256: string;
+  expected_sha256: string;
+  matched: boolean;
+  status: string;
+  last_check: string;
+  drift_pct: number;
+  weight_histogram: number[];
+  activity: { event: string; timestamp: string; status: string }[];
+  model_loaded: boolean;
+}
+
+export async function fetchIntegrity(): Promise<IntegrityResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/integrity`);
+    if (res.ok) return res.json();
+  } catch { /* ignore */ }
+  return null;
+}
