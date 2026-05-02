@@ -381,19 +381,24 @@ def make_prediction_from_dataset():
     if not dataset_rows:
         return None
     row = random.choice(dataset_rows)
-    attack = predict_row(row)
+    attack, model_conf = predict_row(row)
     proto = row[1] if len(row) > 1 else "tcp"
     svc = row[2] if len(row) > 2 else "other"
     flag = row[3] if len(row) > 3 else "SF"
     src_bytes = int(float(row[4])) if len(row) > 4 else 0
     dst_bytes = int(float(row[5])) if len(row) > 5 else 0
     raw_label = row[41].strip() if len(row) > 41 else "unknown"
+    # Confidence: use model softmax when available, else jittered fallback
+    if resnet_model is not None:
+        confidence = max(40, min(99, int(round(model_conf))))
+    else:
+        confidence = random.randint(85, 99) if attack == "Normal" else random.randint(75, 99)
     return {
         "prediction": attack,
         "risk": RISK_MAP.get(attack, "MEDIUM"),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "source_ip": random.choice(IPS),
-        "confidence": random.randint(85, 99) if attack == "Normal" else random.randint(75, 99),
+        "confidence": confidence,
         "raw_label": raw_label,
         "src_bytes": src_bytes,
         "dst_bytes": dst_bytes,
