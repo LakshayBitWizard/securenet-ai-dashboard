@@ -122,6 +122,13 @@ PORT_SERVICE = {
     194: "IRC", 113: "auth", 70: "gopher", 79: "finger",
 }
 
+# Confidence threshold below which a live prediction is labelled "Uncertain"
+LOW_CONFIDENCE_THRESHOLD = 60
+
+# Protocols/services that should NEVER be classified as R2L/U2R from Scapy
+# (control-plane and lookup traffic — ARP, ICMP echo, DNS lookups).
+BENIGN_LIVE_SERVICES = {"domain", "domain_u", "eco_i", "ecr_i", "urh_i", "tim_i", "ntp_u"}
+
 IPS = [
     "192.168.1.44", "45.233.12.102", "10.0.0.12",
     "172.16.254.1", "88.192.4.15", "203.0.113.50",
@@ -144,17 +151,20 @@ def ip_origin(ip: str) -> str:
     return "Other"
 
 
-# Load dataset
+# Load datasets — prefer KDDTest+.txt (canonical name), fall back to KDDTest.txt
 dataset_rows = []
-data_path = os.path.join(os.path.dirname(__file__), "data", "KDDTest.txt")
-if os.path.exists(data_path):
-    with open(data_path, "r") as f:
-        for row in csv.reader(f):
-            if len(row) >= 42:
-                dataset_rows.append(row)
-    print(f"[SecureNet] Loaded {len(dataset_rows)} rows from KDDTest.txt")
+_data_dir = os.path.join(os.path.dirname(__file__), "data")
+for _candidate in ("KDDTest+.txt", "KDDTest.txt"):
+    _p = os.path.join(_data_dir, _candidate)
+    if os.path.exists(_p):
+        with open(_p, "r") as f:
+            for row in csv.reader(f):
+                if len(row) >= 42:
+                    dataset_rows.append(row)
+        print(f"[SecureNet] Loaded {len(dataset_rows)} rows from {_candidate}")
+        break
 else:
-    print(f"[SecureNet] WARNING: {data_path} not found.")
+    print(f"[SecureNet] WARNING: no KDDTest dataset found in {_data_dir}")
 
 
 # ─── ResNet model ──────────────────────────────────────
@@ -215,8 +225,23 @@ try:
     else:
         print("[SecureNet] No pre-trained model — using ground-truth labels")
 
+    # Optional normalization parameters saved by train_resnet.py
+    _mean_p = os.path.join(os.path.dirname(__file__), "norm_mean.npy")
+    _std_p = os.path.join(os.path.dirname(__file__), "norm_std.npy")
+    if os.path.exists(_mean_p) and os.path.exists(_std_p):
+        try:
+            norm_mean = np.load(_mean_p)
+            norm_std = np.load(_std_p)
+            print("[SecureNet] Normalization params loaded")
+        except Exception as e:
+            print(f"[SecureNet] Failed to load normalization: {e}")
+            norm_mean = norm_std = None
+    else:
+        norm_mean = norm_std = None
+
 except ImportError:
     print("[SecureNet] PyTorch not installed — using ground-truth labels")
+    norm_mean = norm_std = None
 
 
 def encode_row(row):
@@ -242,25 +267,38 @@ def encode_row(row):
 
 def heuristic_classify(row):
     """Heuristic classifier for live Scapy flows (no ground-truth label).
-    Maps flow features to one of the 5 NSL-KDD categories."""
+    Maps flow features to one of the 5 NSL-KDD categories. Includes guards
+    so that benign control-plane traffic (ARP/ICMP echo/DNS) is not
+    misclassified as R2L/U2R."""
     try:
         proto = row[1]
         svc = row[2]
         flag = row[3]
         src_b = float(row[4])
         dst_b = float(row[5])
-        dport = 0
-        # dport hint stored on row via flow; not in standard KDD col, so infer from service
-        # ICMP flood / huge unidirectional → DoS
-        if proto == "icmp" and src_b > 5000:
-            return "DoS"
-        if flag in ("S0", "REJ") and src_b > 0 and dst_b == 0:
-            # half-open / rejected connections → Probe (port scan)
+
+        # Benign lookup / control-plane traffic — only flag DoS on volume.
+        if svc in BENIGN_LIVE_SERVICES:
+            if src_b + dst_b > 200000:
+                return "DoS"
+            return "Normal"
+
+        # ICMP: only DoS on flood, otherwise Normal (avoids R2L bias).
+        if proto == "icmp":
+            if src_b > 8000:
+                return "DoS"
+            return "Normal"
+
+        # Half-open / rejected connections → Probe (port scan)
+        if flag in ("S0", "REJ") and src_b >= 0 and dst_b == 0:
             return "Probe"
-        if svc in ("private", "other") and src_b > 0 and dst_b == 0:
+        if svc in ("private", "other") and src_b > 0 and dst_b == 0 and flag != "SF":
             return "Probe"
-        if svc in ("ftp", "ftp_data", "telnet", "ssh", "smtp", "pop_3", "imap4") and src_b > 100:
-            # auth-service traffic with payload → R2L attempt
+
+        # Auth-service traffic with substantial payload → R2L attempt.
+        # Require BIDIRECTIONAL bytes to avoid flagging single SYNs.
+        if svc in ("ftp", "ftp_data", "telnet", "ssh", "smtp", "pop_3", "imap4") \
+                and src_b > 200 and dst_b > 0:
             return "R2L"
         if svc in ("shell", "kshell", "exec", "rje") or (svc == "telnet" and src_b > 5000):
             return "U2R"
@@ -272,19 +310,38 @@ def heuristic_classify(row):
 
 
 def predict_row(row, live=False):
+    """Run trained ResNet on a KDD row. Returns (label, confidence_pct).
+    Falls back to heuristic (live) or ground-truth (dataset) if no model."""
     raw_label = row[41].strip().lower() if len(row) > 41 else "normal"
     gt = ATTACK_CATEGORY.get(raw_label, "Normal")
     if resnet_model is not None and torch is not None:
         try:
-            tensor = torch.FloatTensor([encode_row(row)])
+            features = encode_row(row)
+            arr = np.array([features], dtype=np.float32)
+            if norm_mean is not None and norm_std is not None:
+                arr = (arr - norm_mean) / norm_std
+            tensor = torch.FloatTensor(arr)
             with torch.no_grad():
-                idx = torch.argmax(resnet_model(tensor), dim=1).item()
-            return idx_to_label.get(idx, "Normal")
+                logits = resnet_model(tensor)
+                probs = torch.softmax(logits, dim=1)[0]
+                idx = int(torch.argmax(probs).item())
+                conf = float(probs[idx].item()) * 100.0
+            label = idx_to_label.get(idx, "Normal")
+            # Live-mode bias guard: do not let benign control traffic be
+            # classified as R2L/U2R when the model is unsure.
+            if live and label in ("R2L", "U2R"):
+                svc = row[2] if len(row) > 2 else ""
+                proto = row[1] if len(row) > 1 else ""
+                if svc in BENIGN_LIVE_SERVICES or proto == "icmp":
+                    label = "Normal"
+                elif conf < LOW_CONFIDENCE_THRESHOLD:
+                    label = "Uncertain"
+            return label, conf
         except Exception as e:
             print(f"[SecureNet] inference error: {e}")
     if live:
-        return heuristic_classify(row)
-    return gt
+        return heuristic_classify(row), 75.0
+    return gt, 92.0
 
 
 # ─── Persistent state (thread-safe) ────────────────────
@@ -324,19 +381,24 @@ def make_prediction_from_dataset():
     if not dataset_rows:
         return None
     row = random.choice(dataset_rows)
-    attack = predict_row(row)
+    attack, model_conf = predict_row(row)
     proto = row[1] if len(row) > 1 else "tcp"
     svc = row[2] if len(row) > 2 else "other"
     flag = row[3] if len(row) > 3 else "SF"
     src_bytes = int(float(row[4])) if len(row) > 4 else 0
     dst_bytes = int(float(row[5])) if len(row) > 5 else 0
     raw_label = row[41].strip() if len(row) > 41 else "unknown"
+    # Confidence: use model softmax when available, else jittered fallback
+    if resnet_model is not None:
+        confidence = max(40, min(99, int(round(model_conf))))
+    else:
+        confidence = random.randint(85, 99) if attack == "Normal" else random.randint(75, 99)
     return {
         "prediction": attack,
         "risk": RISK_MAP.get(attack, "MEDIUM"),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "source_ip": random.choice(IPS),
-        "confidence": random.randint(85, 99) if attack == "Normal" else random.randint(75, 99),
+        "confidence": confidence,
         "raw_label": raw_label,
         "src_bytes": src_bytes,
         "dst_bytes": dst_bytes,
@@ -441,19 +503,25 @@ def _flow_flusher():
         for _, f in ready:
             duration = max(0, now - f["start"])
             row = _flow_to_kdd_row(f, duration)
-            attack = predict_row(row, live=True)
+            attack, model_conf = predict_row(row, live=True)
             # App-layer override
             app_threat = detect_app_threat(f.get("payload", ""))
             if app_threat:
                 attack = app_threat
-            risk = RISK_MAP.get(attack, "MEDIUM")
+                model_conf = 95.0
+            # Map "Uncertain" → MEDIUM risk so it's visible but not alarming
+            if attack == "Uncertain":
+                risk = "MEDIUM"
+            else:
+                risk = RISK_MAP.get(attack, "MEDIUM")
+            confidence = max(40, min(99, int(round(model_conf))))
             result = {
                 "prediction": attack,
                 "risk": risk,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "source_ip": f["src"],
                 "destination_ip": f["dst"],
-                "confidence": random.randint(70, 99),
+                "confidence": confidence,
                 "raw_label": "live",
                 "src_bytes": f["src_bytes"],
                 "dst_bytes": f["dst_bytes"],
@@ -655,7 +723,7 @@ def upload_detect():
         text = raw.decode("utf-8", "ignore")
         for row in csv.reader(text.splitlines()):
             if len(row) >= 6:
-                attack = predict_row(row + [""] * (42 - len(row)))
+                attack, _ = predict_row(row + [""] * (42 - len(row)))
                 detections.append(attack)
         if not detections:
             detections = ["Normal"]
@@ -686,7 +754,7 @@ def upload_detect():
                     except Exception:
                         pass
             row = _flow_to_kdd_row(agg, 1)
-            attack = predict_row(row, live=True)
+            attack, _ = predict_row(row, live=True)
             app_t = detect_app_threat(agg["payload"])
             if app_t: attack = app_t
             detections.append(attack)

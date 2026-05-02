@@ -131,9 +131,9 @@ export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSe
 }
 
 // ─── Demo fallback (backend offline) ─────────────────
-const attackTypes = ["Normal", "DoS", "Probe", "R2L", "U2R"];
+const attackTypes = ["Normal", "DoS", "Probe", "R2L", "U2R", "Uncertain"];
 const riskMap: Record<string, PredictionResult["risk"]> = {
-  Normal: "LOW", DoS: "CRITICAL", Probe: "MEDIUM", R2L: "HIGH", U2R: "CRITICAL",
+  Normal: "LOW", DoS: "CRITICAL", Probe: "MEDIUM", R2L: "HIGH", U2R: "CRITICAL", Uncertain: "MEDIUM",
 };
 const ips = ["192.168.1.44", "45.233.12.102", "10.0.0.12", "172.16.254.1", "88.192.4.15", "203.0.113.50"];
 const protos = ["tcp", "udp", "icmp"];

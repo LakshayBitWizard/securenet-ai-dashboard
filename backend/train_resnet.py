@@ -19,18 +19,36 @@ from torch.utils.data import DataLoader, TensorDataset
 # Import model and helpers from app
 from app import (
     ResNetClassifier, encode_row, ATTACK_CATEGORY,
-    label_to_idx, idx_to_label, dataset_rows,
+    label_to_idx, idx_to_label,
 )
 
+
+def load_training_rows():
+    """Load NSL-KDD training data — prefer KDDTrain+.txt, fall back to KDDTest+.txt."""
+    base = os.path.join(os.path.dirname(__file__), "data")
+    rows = []
+    for candidate in ("KDDTrain+.txt", "KDDTrain.txt", "KDDTest+.txt", "KDDTest.txt"):
+        p = os.path.join(base, candidate)
+        if os.path.exists(p):
+            with open(p, "r") as f:
+                for r in csv.reader(f):
+                    if len(r) >= 42:
+                        rows.append(r)
+            print(f"Loaded {len(rows)} rows from {candidate}")
+            return rows
+    return rows
+
+
 def main():
-    if not dataset_rows:
-        print("ERROR: No dataset rows loaded. Ensure data/KDDTest.txt exists.")
+    training_rows = load_training_rows()
+    if not training_rows:
+        print("ERROR: No dataset rows loaded. Place KDDTrain+.txt in backend/data/.")
         return
 
-    print(f"Preparing {len(dataset_rows)} samples...")
+    print(f"Preparing {len(training_rows)} samples...")
 
     X, y = [], []
-    for row in dataset_rows:
+    for row in training_rows:
         features = encode_row(row)
         raw_label = row[41].strip().lower() if len(row) > 41 else "normal"
         category = ATTACK_CATEGORY.get(raw_label, "Normal")
