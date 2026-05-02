@@ -122,6 +122,13 @@ PORT_SERVICE = {
     194: "IRC", 113: "auth", 70: "gopher", 79: "finger",
 }
 
+# Confidence threshold below which a live prediction is labelled "Uncertain"
+LOW_CONFIDENCE_THRESHOLD = 60
+
+# Protocols/services that should NEVER be classified as R2L/U2R from Scapy
+# (control-plane and lookup traffic — ARP, ICMP echo, DNS lookups).
+BENIGN_LIVE_SERVICES = {"domain", "domain_u", "eco_i", "ecr_i", "urh_i", "tim_i", "ntp_u"}
+
 IPS = [
     "192.168.1.44", "45.233.12.102", "10.0.0.12",
     "172.16.254.1", "88.192.4.15", "203.0.113.50",
@@ -144,17 +151,20 @@ def ip_origin(ip: str) -> str:
     return "Other"
 
 
-# Load dataset
+# Load datasets — prefer KDDTest+.txt (canonical name), fall back to KDDTest.txt
 dataset_rows = []
-data_path = os.path.join(os.path.dirname(__file__), "data", "KDDTest.txt")
-if os.path.exists(data_path):
-    with open(data_path, "r") as f:
-        for row in csv.reader(f):
-            if len(row) >= 42:
-                dataset_rows.append(row)
-    print(f"[SecureNet] Loaded {len(dataset_rows)} rows from KDDTest.txt")
+_data_dir = os.path.join(os.path.dirname(__file__), "data")
+for _candidate in ("KDDTest+.txt", "KDDTest.txt"):
+    _p = os.path.join(_data_dir, _candidate)
+    if os.path.exists(_p):
+        with open(_p, "r") as f:
+            for row in csv.reader(f):
+                if len(row) >= 42:
+                    dataset_rows.append(row)
+        print(f"[SecureNet] Loaded {len(dataset_rows)} rows from {_candidate}")
+        break
 else:
-    print(f"[SecureNet] WARNING: {data_path} not found.")
+    print(f"[SecureNet] WARNING: no KDDTest dataset found in {_data_dir}")
 
 
 # ─── ResNet model ──────────────────────────────────────
