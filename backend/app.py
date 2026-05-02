@@ -723,7 +723,7 @@ def upload_detect():
         text = raw.decode("utf-8", "ignore")
         for row in csv.reader(text.splitlines()):
             if len(row) >= 6:
-                attack = predict_row(row + [""] * (42 - len(row)))
+                attack, _ = predict_row(row + [""] * (42 - len(row)))
                 detections.append(attack)
         if not detections:
             detections = ["Normal"]
@@ -754,7 +754,7 @@ def upload_detect():
                     except Exception:
                         pass
             row = _flow_to_kdd_row(agg, 1)
-            attack = predict_row(row, live=True)
+            attack, _ = predict_row(row, live=True)
             app_t = detect_app_threat(agg["payload"])
             if app_t: attack = app_t
             detections.append(attack)
