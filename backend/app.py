@@ -503,19 +503,25 @@ def _flow_flusher():
         for _, f in ready:
             duration = max(0, now - f["start"])
             row = _flow_to_kdd_row(f, duration)
-            attack = predict_row(row, live=True)
+            attack, model_conf = predict_row(row, live=True)
             # App-layer override
             app_threat = detect_app_threat(f.get("payload", ""))
             if app_threat:
                 attack = app_threat
-            risk = RISK_MAP.get(attack, "MEDIUM")
+                model_conf = 95.0
+            # Map "Uncertain" → MEDIUM risk so it's visible but not alarming
+            if attack == "Uncertain":
+                risk = "MEDIUM"
+            else:
+                risk = RISK_MAP.get(attack, "MEDIUM")
+            confidence = max(40, min(99, int(round(model_conf))))
             result = {
                 "prediction": attack,
                 "risk": risk,
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "source_ip": f["src"],
                 "destination_ip": f["dst"],
-                "confidence": random.randint(70, 99),
+                "confidence": confidence,
                 "raw_label": "live",
                 "src_bytes": f["src_bytes"],
                 "dst_bytes": f["dst_bytes"],
