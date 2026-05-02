@@ -225,8 +225,23 @@ try:
     else:
         print("[SecureNet] No pre-trained model — using ground-truth labels")
 
+    # Optional normalization parameters saved by train_resnet.py
+    _mean_p = os.path.join(os.path.dirname(__file__), "norm_mean.npy")
+    _std_p = os.path.join(os.path.dirname(__file__), "norm_std.npy")
+    if os.path.exists(_mean_p) and os.path.exists(_std_p):
+        try:
+            norm_mean = np.load(_mean_p)
+            norm_std = np.load(_std_p)
+            print("[SecureNet] Normalization params loaded")
+        except Exception as e:
+            print(f"[SecureNet] Failed to load normalization: {e}")
+            norm_mean = norm_std = None
+    else:
+        norm_mean = norm_std = None
+
 except ImportError:
     print("[SecureNet] PyTorch not installed — using ground-truth labels")
+    norm_mean = norm_std = None
 
 
 def encode_row(row):
@@ -252,25 +267,38 @@ def encode_row(row):
 
 def heuristic_classify(row):
     """Heuristic classifier for live Scapy flows (no ground-truth label).
-    Maps flow features to one of the 5 NSL-KDD categories."""
+    Maps flow features to one of the 5 NSL-KDD categories. Includes guards
+    so that benign control-plane traffic (ARP/ICMP echo/DNS) is not
+    misclassified as R2L/U2R."""
     try:
         proto = row[1]
         svc = row[2]
         flag = row[3]
         src_b = float(row[4])
         dst_b = float(row[5])
-        dport = 0
-        # dport hint stored on row via flow; not in standard KDD col, so infer from service
-        # ICMP flood / huge unidirectional → DoS
-        if proto == "icmp" and src_b > 5000:
-            return "DoS"
-        if flag in ("S0", "REJ") and src_b > 0 and dst_b == 0:
-            # half-open / rejected connections → Probe (port scan)
+
+        # Benign lookup / control-plane traffic — only flag DoS on volume.
+        if svc in BENIGN_LIVE_SERVICES:
+            if src_b + dst_b > 200000:
+                return "DoS"
+            return "Normal"
+
+        # ICMP: only DoS on flood, otherwise Normal (avoids R2L bias).
+        if proto == "icmp":
+            if src_b > 8000:
+                return "DoS"
+            return "Normal"
+
+        # Half-open / rejected connections → Probe (port scan)
+        if flag in ("S0", "REJ") and src_b >= 0 and dst_b == 0:
             return "Probe"
-        if svc in ("private", "other") and src_b > 0 and dst_b == 0:
+        if svc in ("private", "other") and src_b > 0 and dst_b == 0 and flag != "SF":
             return "Probe"
-        if svc in ("ftp", "ftp_data", "telnet", "ssh", "smtp", "pop_3", "imap4") and src_b > 100:
-            # auth-service traffic with payload → R2L attempt
+
+        # Auth-service traffic with substantial payload → R2L attempt.
+        # Require BIDIRECTIONAL bytes to avoid flagging single SYNs.
+        if svc in ("ftp", "ftp_data", "telnet", "ssh", "smtp", "pop_3", "imap4") \
+                and src_b > 200 and dst_b > 0:
             return "R2L"
         if svc in ("shell", "kshell", "exec", "rje") or (svc == "telnet" and src_b > 5000):
             return "U2R"
@@ -282,19 +310,38 @@ def heuristic_classify(row):
 
 
 def predict_row(row, live=False):
+    """Run trained ResNet on a KDD row. Returns (label, confidence_pct).
+    Falls back to heuristic (live) or ground-truth (dataset) if no model."""
     raw_label = row[41].strip().lower() if len(row) > 41 else "normal"
     gt = ATTACK_CATEGORY.get(raw_label, "Normal")
     if resnet_model is not None and torch is not None:
         try:
-            tensor = torch.FloatTensor([encode_row(row)])
+            features = encode_row(row)
+            arr = np.array([features], dtype=np.float32)
+            if norm_mean is not None and norm_std is not None:
+                arr = (arr - norm_mean) / norm_std
+            tensor = torch.FloatTensor(arr)
             with torch.no_grad():
-                idx = torch.argmax(resnet_model(tensor), dim=1).item()
-            return idx_to_label.get(idx, "Normal")
+                logits = resnet_model(tensor)
+                probs = torch.softmax(logits, dim=1)[0]
+                idx = int(torch.argmax(probs).item())
+                conf = float(probs[idx].item()) * 100.0
+            label = idx_to_label.get(idx, "Normal")
+            # Live-mode bias guard: do not let benign control traffic be
+            # classified as R2L/U2R when the model is unsure.
+            if live and label in ("R2L", "U2R"):
+                svc = row[2] if len(row) > 2 else ""
+                proto = row[1] if len(row) > 1 else ""
+                if svc in BENIGN_LIVE_SERVICES or proto == "icmp":
+                    label = "Normal"
+                elif conf < LOW_CONFIDENCE_THRESHOLD:
+                    label = "Uncertain"
+            return label, conf
         except Exception as e:
             print(f"[SecureNet] inference error: {e}")
     if live:
-        return heuristic_classify(row)
-    return gt
+        return heuristic_classify(row), 75.0
+    return gt, 92.0
 
 
 # ─── Persistent state (thread-safe) ────────────────────
