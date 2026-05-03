@@ -20,6 +20,14 @@ export interface PredictionResult {
   status?: string;
 }
 
+export interface UploadRowDetection {
+  label: string;
+  confidence: number;
+  risk: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  source_ip: string;
+  destination_ip: string;
+}
+
 export interface UploadResult {
   file: string;
   size_bytes: number;
@@ -32,6 +40,7 @@ export interface UploadResult {
   destination_ip: string;
   time_to_detect: number;
   category_counts: Record<string, number>;
+  per_row?: UploadRowDetection[];
   timestamp: string;
 }
 
