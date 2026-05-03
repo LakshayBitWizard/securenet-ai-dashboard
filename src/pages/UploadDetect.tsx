@@ -1,8 +1,18 @@
 import Header from "@/components/Header";
 import { Upload as UploadIcon, FileText, X, Zap } from "lucide-react";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo } from "react";
 import { uploadDetect, type UploadResult } from "@/services/api";
 import { toast } from "sonner";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+
+const CATEGORY_COLORS: Record<string, string> = {
+  Normal: "hsl(var(--success))",
+  DoS: "hsl(var(--destructive))",
+  Probe: "hsl(var(--warning))",
+  R2L: "hsl(var(--primary))",
+  U2R: "hsl(280 80% 60%)",
+  Uncertain: "hsl(var(--muted-foreground))",
+};
 
 const RISK_COLOR: Record<string, string> = {
   CRITICAL: "text-destructive", HIGH: "text-warning", MEDIUM: "text-foreground", LOW: "text-success",
