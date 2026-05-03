@@ -713,67 +713,84 @@ def upload_detect():
     size = len(raw)
     started = time.time()
 
-    detections = []  # per-row detections
+    per_row = []  # [{label, confidence, risk, source_ip, destination_ip}]
     src_ip = "—"
     dst_ip = "—"
 
-    if ext == "csv" or ext == "txt":
+    def _push(label, conf, s_ip="—", d_ip="—"):
+        if conf < LOW_CONFIDENCE_THRESHOLD and label not in ("Normal",):
+            label = "Uncertain"
+        risk_l = "MEDIUM" if label == "Uncertain" else RISK_MAP.get(label, "LOW")
+        per_row.append({
+            "label": label,
+            "confidence": round(conf, 1),
+            "risk": risk_l,
+            "source_ip": s_ip,
+            "destination_ip": d_ip,
+        })
+
+    if ext in ("csv", "txt"):
         text = raw.decode("utf-8", "ignore")
         for row in csv.reader(text.splitlines()):
             if len(row) >= 6:
-                attack, _ = predict_row(row + [""] * (42 - len(row)))
-                detections.append(attack)
-        if not detections:
-            detections = ["Normal"]
+                padded = row + [""] * (42 - len(row))
+                attack, conf = predict_row(padded)
+                _push(attack, conf)
+        if not per_row:
+            _push("Normal", 95.0)
     elif ext == "log":
         text = raw.decode("utf-8", "ignore")
         for line in text.splitlines():
             t = detect_app_threat(line)
-            detections.append(t or "Normal")
+            _push(t or "Normal", 92.0 if t else 96.0)
     elif ext in ("pcap", "pcapng") and scapy_available:
         try:
             from scapy.all import rdpcap
             pkts = rdpcap_from_bytes(raw)
-            agg = {"src_bytes": 0, "dst_bytes": 0, "proto": "tcp",
-                   "flag": "SF", "dport": 0, "src": "—", "dst": "—",
-                   "start": 0, "payload": ""}
+            # Group packets per 5-tuple flow → per-row prediction
+            flows = {}
             for pkt in pkts:
-                if IP in pkt:
-                    if agg["src"] == "—":
-                        agg["src"] = pkt[IP].src
-                        agg["dst"] = pkt[IP].dst
-                    agg["src_bytes"] += len(pkt)
-                    if TCP in pkt: agg["proto"] = "tcp"; agg["dport"] = pkt[TCP].dport
-                    elif UDP in pkt: agg["proto"] = "udp"; agg["dport"] = pkt[UDP].dport
-                    elif ICMP in pkt: agg["proto"] = "icmp"
-                    try:
-                        if Raw in pkt and len(agg["payload"]) < 4096:
-                            agg["payload"] += bytes(pkt[Raw].load)[:512].decode("utf-8", "ignore")
-                    except Exception:
-                        pass
-            row = _flow_to_kdd_row(agg, 1)
-            attack, _ = predict_row(row, live=True)
-            app_t = detect_app_threat(agg["payload"])
-            if app_t: attack = app_t
-            detections.append(attack)
-            src_ip, dst_ip = agg["src"], agg["dst"]
+                if IP not in pkt:
+                    continue
+                proto = "tcp" if TCP in pkt else "udp" if UDP in pkt else "icmp" if ICMP in pkt else "other"
+                sport = pkt[TCP].sport if TCP in pkt else pkt[UDP].sport if UDP in pkt else 0
+                dport = pkt[TCP].dport if TCP in pkt else pkt[UDP].dport if UDP in pkt else 0
+                key = (pkt[IP].src, pkt[IP].dst, sport, dport, proto)
+                f = flows.setdefault(key, {"src_bytes": 0, "dst_bytes": 0, "proto": proto,
+                                          "flag": "SF", "dport": dport,
+                                          "src": pkt[IP].src, "dst": pkt[IP].dst,
+                                          "payload": ""})
+                f["src_bytes"] += len(pkt)
+                try:
+                    if Raw in pkt and len(f["payload"]) < 2048:
+                        f["payload"] += bytes(pkt[Raw].load)[:512].decode("utf-8", "ignore")
+                except Exception:
+                    pass
+            for f in flows.values():
+                row = _flow_to_kdd_row(f, 1)
+                attack, conf = predict_row(row, live=True)
+                app_t = detect_app_threat(f["payload"])
+                if app_t:
+                    attack, conf = app_t, 95.0
+                _push(attack, conf, f["src"], f["dst"])
+            if per_row:
+                src_ip = per_row[0]["source_ip"]
+                dst_ip = per_row[0]["destination_ip"]
+            else:
+                _push("Normal", 95.0)
         except Exception as e:
             return jsonify({"error": f"pcap parse failed: {e}"}), 400
     else:
-        # Fallback: treat as text and scan
         text = raw.decode("utf-8", "ignore")[:50000]
         t = detect_app_threat(text)
-        detections.append(t or "Normal")
+        _push(t or "Normal", 90.0)
 
-    counts = Counter(detections)
+    counts = Counter(r["label"] for r in per_row)
     threats = {k: v for k, v in counts.items() if k != "Normal"}
-    if threats:
-        primary = max(threats.items(), key=lambda x: x[1])[0]
-    else:
-        primary = "Normal"
-    risk = RISK_MAP.get(primary, "LOW")
+    primary = max(threats.items(), key=lambda x: x[1])[0] if threats else "Normal"
+    risk = "MEDIUM" if primary == "Uncertain" else RISK_MAP.get(primary, "LOW")
     elapsed = round(time.time() - started, 2)
-    confidence = round(100 * counts.get(primary, 1) / max(1, sum(counts.values())), 1)
+    avg_conf = round(sum(r["confidence"] for r in per_row) / max(1, len(per_row)), 1)
 
     summary = {
         "file": fname,
@@ -782,21 +799,22 @@ def upload_detect():
         "primary_attack": primary,
         "risk": risk,
         "status": STATUS_MAP.get(risk, "Under Review"),
-        "confidence": confidence,
+        "confidence": avg_conf,
         "source_ip": src_ip,
         "destination_ip": dst_ip,
         "time_to_detect": elapsed,
         "category_counts": dict(counts),
+        "per_row": per_row[:500],  # cap for transport
         "timestamp": datetime.utcnow().isoformat() + "Z",
     }
-    # Also push into the live log so it appears on the dashboard
+    # Push into live log
     append_prediction({
         "prediction": primary,
         "risk": risk,
         "timestamp": summary["timestamp"],
         "source_ip": src_ip if src_ip != "—" else random.choice(IPS),
         "destination_ip": dst_ip,
-        "confidence": int(confidence),
+        "confidence": int(avg_conf),
         "raw_label": "upload",
         "src_bytes": size,
         "dst_bytes": 0,
