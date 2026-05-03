@@ -151,20 +151,18 @@ def ip_origin(ip: str) -> str:
     return "Other"
 
 
-# Load datasets — prefer KDDTest+.txt (canonical name), fall back to KDDTest.txt
+# Load dataset — only KDDTest+.txt is supported
 dataset_rows = []
 _data_dir = os.path.join(os.path.dirname(__file__), "data")
-for _candidate in ("KDDTest+.txt", "KDDTest.txt"):
-    _p = os.path.join(_data_dir, _candidate)
-    if os.path.exists(_p):
-        with open(_p, "r") as f:
-            for row in csv.reader(f):
-                if len(row) >= 42:
-                    dataset_rows.append(row)
-        print(f"[SecureNet] Loaded {len(dataset_rows)} rows from {_candidate}")
-        break
+_p = os.path.join(_data_dir, "KDDTest+.txt")
+if os.path.exists(_p):
+    with open(_p, "r") as f:
+        for row in csv.reader(f):
+            if len(row) >= 42:
+                dataset_rows.append(row)
+    print(f"[SecureNet] Loaded {len(dataset_rows)} rows from KDDTest+.txt")
 else:
-    print(f"[SecureNet] WARNING: no KDDTest dataset found in {_data_dir}")
+    print(f"[SecureNet] WARNING: KDDTest+.txt not found in {_data_dir} — dataset-mode predictions disabled")
 
 
 # ─── ResNet model ──────────────────────────────────────
