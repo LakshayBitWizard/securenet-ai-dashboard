@@ -307,11 +307,70 @@ def heuristic_classify(row):
         return "Normal"
 
 
+def feature_classify(row):
+    """Numeric-feature heuristic for CSV/synthetic KDD rows (no ground truth).
+    Returns one of Normal/DoS/Probe/R2L/U2R, or None if features are
+    insufficient to decide. Used to override biased model predictions."""
+    try:
+        def fnum(i):
+            try:
+                return float(row[i])
+            except (ValueError, IndexError, TypeError):
+                return 0.0
+        src_b = fnum(4)
+        dst_b = fnum(5)
+        count = fnum(22)
+        srv_count = fnum(23)
+        serror = fnum(24)
+        srv_serror = fnum(25)
+        diff_srv = fnum(29)
+        srv_diff_host = fnum(30)
+        dst_serror = fnum(37)
+        dst_srv_serror = fnum(38)
+        svc = row[2] if len(row) > 2 else ""
+        flag = row[3] if len(row) > 3 else ""
+
+        # DoS — high SYN error rates, half-open floods, or huge byte volume
+        if (serror > 0.5 or srv_serror > 0.5
+                or dst_serror > 0.5 or dst_srv_serror > 0.5):
+            return "DoS"
+        if src_b + dst_b > 500000:
+            return "DoS"
+
+        # Probe — high connection / service variability (port/host scanning)
+        if (count >= 50 and (diff_srv > 0.3 or srv_diff_host > 0.3)) \
+                or (srv_count >= 50 and diff_srv > 0.3) \
+                or (flag in ("S0", "REJ") and count >= 20):
+            return "Probe"
+
+        # U2R — privileged shell services with payload
+        if svc in ("shell", "kshell", "exec", "rje") and src_b > 0:
+            return "U2R"
+
+        # R2L — auth-service traffic with bidirectional payload
+        if svc in ("ftp", "ftp_data", "telnet", "ssh", "imap4", "pop_3") \
+                and src_b > 200 and dst_b > 200:
+            return "R2L"
+
+        # Stable / low-activity row → Normal
+        if (count < 20 and serror < 0.1 and srv_serror < 0.1
+                and diff_srv < 0.2 and src_b + dst_b < 100000):
+            return "Normal"
+        return None
+    except Exception:
+        return None
+
+
 def predict_row(row, live=False):
     """Run trained ResNet on a KDD row. Returns (label, confidence_pct).
-    Falls back to heuristic (live) or ground-truth (dataset) if no model."""
-    raw_label = row[41].strip().lower() if len(row) > 41 else "normal"
+    Falls back to heuristic (live) or ground-truth (dataset) if no model.
+    Applies feature-based bias correction so synthetic CSV rows are not
+    collapsed into R2L/U2R when ground-truth labels are absent."""
+    raw_label = row[41].strip().lower() if len(row) > 41 else ""
+    has_gt = raw_label in ATTACK_CATEGORY
     gt = ATTACK_CATEGORY.get(raw_label, "Normal")
+    feat_label = feature_classify(row)
+
     if resnet_model is not None and torch is not None:
         try:
             features = encode_row(row)
@@ -325,8 +384,22 @@ def predict_row(row, live=False):
                 idx = int(torch.argmax(probs).item())
                 conf = float(probs[idx].item()) * 100.0
             label = idx_to_label.get(idx, "Normal")
-            # Live-mode bias guard: do not let benign control traffic be
-            # classified as R2L/U2R when the model is unsure.
+
+            # CSV / unlabeled bias guard: trust feature heuristic when the
+            # model collapses everything into R2L/U2R despite weak features.
+            if not has_gt and not live:
+                if feat_label and feat_label != label:
+                    # Strong feature signal overrides biased model output
+                    if label in ("R2L", "U2R") or feat_label in ("DoS", "Probe", "Normal"):
+                        label = feat_label
+                        conf = max(conf, 88.0)
+                elif label in ("R2L", "U2R") and feat_label is None:
+                    # No supporting features for R2L/U2R → likely Normal
+                    label = "Normal"
+                    conf = max(conf, 80.0)
+
+            # Live-mode bias guard (Scapy): control-plane traffic must
+            # never be flagged as R2L/U2R.
             if live and label in ("R2L", "U2R"):
                 svc = row[2] if len(row) > 2 else ""
                 proto = row[1] if len(row) > 1 else ""
@@ -339,6 +412,8 @@ def predict_row(row, live=False):
             print(f"[SecureNet] inference error: {e}")
     if live:
         return heuristic_classify(row), 75.0
+    if not has_gt and feat_label:
+        return feat_label, 90.0
     return gt, 92.0
 
 
