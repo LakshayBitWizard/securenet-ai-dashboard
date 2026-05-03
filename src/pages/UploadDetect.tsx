@@ -3,6 +3,16 @@ import { Upload as UploadIcon, FileText, X, Zap } from "lucide-react";
 import { useRef, useState } from "react";
 import { uploadDetect, type UploadResult } from "@/services/api";
 import { toast } from "sonner";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
+
+const CATEGORY_COLORS: Record<string, string> = {
+  Normal: "hsl(var(--success))",
+  DoS: "hsl(var(--destructive))",
+  Probe: "hsl(var(--warning))",
+  R2L: "hsl(var(--primary))",
+  U2R: "hsl(280 80% 60%)",
+  Uncertain: "hsl(var(--muted-foreground))",
+};
 
 const RISK_COLOR: Record<string, string> = {
   CRITICAL: "text-destructive", HIGH: "text-warning", MEDIUM: "text-foreground", LOW: "text-success",
@@ -166,13 +176,64 @@ const UploadDetect = () => {
           </div>
         </div>
 
+        {result && result.category_counts && Object.keys(result.category_counts).length > 0 && (
+          <div className="grid grid-cols-5 gap-6">
+            <div className="col-span-2 section-card">
+              <h3 className="text-base font-semibold text-foreground mb-4">Attack Distribution</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={Object.entries(result.category_counts).map(([name, value]) => ({ name, value }))}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={50}
+                      outerRadius={90}
+                      paddingAngle={2}
+                    >
+                      {Object.keys(result.category_counts).map((k) => (
+                        <Cell key={k} fill={CATEGORY_COLORS[k] || "hsl(var(--muted))"} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }} />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            <div className="col-span-3 section-card">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-semibold text-foreground">Per-Row Detections</h3>
+                <span className="text-xs text-muted-foreground">{result.per_row?.length || 0} rows</span>
+              </div>
+              <div className="max-h-64 overflow-auto">
+                <table className="data-table">
+                  <thead><tr><th>#</th><th>Attack</th><th>Confidence</th><th>Risk</th><th>Source</th><th>Destination</th></tr></thead>
+                  <tbody>
+                    {(result.per_row || []).slice(0, 200).map((r, i) => (
+                      <tr key={i}>
+                        <td className="text-muted-foreground font-mono text-xs">{i + 1}</td>
+                        <td><span className="font-medium" style={{ color: CATEGORY_COLORS[r.label] }}>{r.label}</span></td>
+                        <td className="font-mono">{r.confidence}%</td>
+                        <td className={RISK_COLOR[r.risk]}>{r.risk}</td>
+                        <td className="font-mono text-xs">{r.source_ip}</td>
+                        <td className="font-mono text-xs">{r.destination_ip}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="section-card">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-base font-semibold text-foreground">Scan History</h3>
             <span className="text-xs text-muted-foreground">{history.length} scans</span>
           </div>
           <table className="data-table">
-            <thead><tr><th>Timestamp</th><th>File Name</th><th>Threat Type</th><th>Confidence</th><th>Risk</th></tr></thead>
+            <thead><tr><th>Timestamp</th><th>File Name</th><th>Aggregated Counts</th><th>Primary</th><th>Risk</th></tr></thead>
             <tbody>
               {history.length === 0 && (
                 <tr><td colSpan={5} className="text-center text-muted-foreground py-6">No scans yet</td></tr>
@@ -181,8 +242,12 @@ const UploadDetect = () => {
                 <tr key={i}>
                   <td className="text-muted-foreground font-mono text-xs">{new Date(row.timestamp).toLocaleString()}</td>
                   <td className="text-foreground font-medium">{row.file}</td>
+                  <td className="text-xs">
+                    {Object.entries(row.category_counts || {}).map(([k, v]) => (
+                      <span key={k} className="mr-2" style={{ color: CATEGORY_COLORS[k] }}>{v} {k}</span>
+                    ))}
+                  </td>
                   <td><span className={STATUS_BADGE[row.status] || "badge-info"}>{row.primary_attack}</span></td>
-                  <td className="font-mono">{row.confidence}%</td>
                   <td className={RISK_COLOR[row.risk]}>{row.risk}</td>
                 </tr>
               ))}
