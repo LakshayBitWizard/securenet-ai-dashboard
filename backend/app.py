@@ -808,6 +808,11 @@ def upload_detect():
         text = raw.decode("utf-8", "ignore")
         for row in csv.reader(text.splitlines()):
             if len(row) >= 6:
+                # Skip header rows (non-numeric duration field)
+                try:
+                    float(row[0])
+                except (ValueError, TypeError):
+                    continue
                 padded = row + [""] * (42 - len(row))
                 attack, conf = predict_row(padded)
                 _push(attack, conf)
