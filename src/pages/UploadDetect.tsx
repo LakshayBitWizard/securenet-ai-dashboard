@@ -1,6 +1,6 @@
 import Header from "@/components/Header";
 import { Upload as UploadIcon, FileText, X, Zap } from "lucide-react";
-import { useRef, useState, useMemo } from "react";
+import { useRef, useState } from "react";
 import { uploadDetect, type UploadResult } from "@/services/api";
 import { toast } from "sonner";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from "recharts";
