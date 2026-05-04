@@ -91,11 +91,37 @@ export default {
           "0%, 100%": { opacity: "1" },
           "50%": { opacity: "0.6" },
         },
+        "spin-slow": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+        "spin-reverse": {
+          from: { transform: "rotate(360deg)" },
+          to: { transform: "rotate(0deg)" },
+        },
+        "blip-in": {
+          "0%": { transform: "scale(0) translateX(20px)", opacity: "0" },
+          "60%": { transform: "scale(1.2) translateX(0)", opacity: "1" },
+          "100%": { transform: "scale(1) translateX(0)", opacity: "1" },
+        },
+        "radar-sweep": {
+          "0%": { transform: "rotate(0deg)", opacity: "0.6" },
+          "100%": { transform: "rotate(360deg)", opacity: "0.6" },
+        },
+        "ping-slow": {
+          "0%": { transform: "scale(1)", opacity: "0.8" },
+          "100%": { transform: "scale(2.4)", opacity: "0" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
         "pulse-glow": "pulse-glow 2s ease-in-out infinite",
+        "spin-slow": "spin-slow 30s linear infinite",
+        "spin-reverse": "spin-reverse 45s linear infinite",
+        "blip-in": "blip-in 0.5s cubic-bezier(.2,.9,.3,1.4)",
+        "radar-sweep": "radar-sweep 4s linear infinite",
+        "ping-slow": "ping-slow 1.6s cubic-bezier(0,0,0.2,1) infinite",
       },
     },
   },
