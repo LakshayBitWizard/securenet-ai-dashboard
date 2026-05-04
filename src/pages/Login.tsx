@@ -28,9 +28,56 @@ const Login = () => {
     }
   };
 
+  const orbitFeatures = [
+    "Traffic Analysis",
+    "Upload & Detect",
+    "Threat Logs",
+    "AI Model Security",
+    "Adversarial Detection",
+    "Model Integrity",
+    "Settings",
+  ];
+
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 overflow-hidden relative">
+      {/* Ambient background glow */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-primary/5 blur-3xl" />
+      </div>
+
+      {/* Orbit rings (behind login card) */}
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div className="relative w-[600px] h-[600px] max-w-[95vw] max-h-[95vw]">
+          {/* Outer ring with feature labels */}
+          <div className="absolute inset-0 rounded-full border border-primary/20 cyber-glow animate-spin-slow">
+            {orbitFeatures.map((label, i) => {
+              const angle = (i / orbitFeatures.length) * 360;
+              return (
+                <div
+                  key={label}
+                  className="absolute top-1/2 left-1/2"
+                  style={{ transform: `rotate(${angle}deg) translateY(-300px)` }}
+                >
+                  <div
+                    className="px-2.5 py-1 -translate-x-1/2 rounded-full bg-card/80 backdrop-blur cyber-border text-[10px] font-mono uppercase tracking-wider text-primary whitespace-nowrap"
+                    style={{ transform: `translateX(-50%) rotate(-${angle}deg)` }}
+                  >
+                    {label}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Middle ring */}
+          <div className="absolute inset-12 rounded-full border border-primary/15 animate-spin-reverse" />
+          {/* Inner pulsing ring */}
+          <div className="absolute inset-24 rounded-full border border-primary/30 animate-pulse-glow" />
+          {/* Sweeping radar arc */}
+          <div className="absolute inset-0 rounded-full overflow-hidden animate-radar-sweep" style={{ background: "conic-gradient(from 0deg, transparent 0deg, hsl(var(--primary) / 0.15) 30deg, transparent 60deg)" }} />
+        </div>
+      </div>
+
+      <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 rounded-2xl bg-primary/15 cyber-border flex items-center justify-center mb-4">
