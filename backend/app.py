@@ -1,20 +1,4 @@
-# SecureNet AI - Flask Backend with ResNet + NSL-KDD + Scapy live capture
-# =========================================================================
-# Run locally:
-#   pip install flask flask-cors torch numpy pandas scikit-learn scapy
-#   sudo python backend/app.py     # sudo required for live packet capture
-#
-# Endpoints:
-#   POST /login           — auth (admin / 1234)
-#   GET  /predict         — single prediction (dataset or live flow)
-#   GET  /logs            — full rolling log (persistent across requests)
-#   GET  /stats           — aggregate stats: protocols, timeline, anomalies, origins
-#   GET  /notifications   — recent HIGH/CRITICAL alerts since ?since=<iso>
-#   GET  /settings        — current settings
-#   POST /settings        — update settings (mode: dataset|scapy, refresh, threshold)
-#
-# Capture runs in a background thread the moment the app starts and keeps
-# accumulating predictions independently of any frontend tab activity.
+
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS

@@ -1,13 +1,3 @@
-# SecureNet AI - ResNet Training Script for NSL-KDD
-# ===================================================
-# Run this to train the ResNet model and save it as resnet_nslkdd.pth
-#
-# Usage:
-#   cd backend
-#   python train_resnet.py
-#
-# Requirements:
-#   pip install torch numpy pandas scikit-learn
 
 import os
 import csv

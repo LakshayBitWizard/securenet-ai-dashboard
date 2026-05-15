@@ -1,73 +1,62 @@
-# Welcome to your Lovable project
+Project Overview
+SecureNet AI is a deep learning–powered Intrusion Detection System (IDS) designed to detect and classify cyberattacks in real time.
+It leverages ResNet architecture to overcome the limitations of traditional IDS approaches, providing high accuracy, robustness, and explainability through a user‑friendly dashboard.
 
-## Project info
+🔹 Why This Project?
+Cyberattacks are becoming more sophisticated (APTs, fileless malware, multi‑vector attacks).
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+Traditional IDS (signature‑based, anomaly‑based) struggle with zero‑day exploits, false positives, and encrypted traffic.
 
-## How can I edit this code?
+Machine learning models improve detection but fail with high‑dimensional data and imbalanced datasets (rare attacks like R2L/U2R).
 
-There are several ways of editing your application.
+Deep learning, especially ResNet, solves these challenges by automatically learning complex patterns and improving detection accuracy.
 
-**Use Lovable**
+🔹 Key Features
+ResNet‑based IDS model for robust classification of attacks.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+Balanced dataset training (NSL‑KDD) to improve detection of rare intrusions.
 
-Changes made via Lovable will be committed automatically to this repo.
+Real‑time traffic capture using Scapy for adaptability to live networks.
 
-**Use your preferred IDE**
+Adversarial detection mechanisms to flag low‑confidence predictions and resist evasion attacks.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+Integrated dashboard with four functional tabs:
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+Upload & Detect
 
-Follow these steps:
+Threat Logs
 
-```sh
+Traffic Analysis
+
+Integrity Monitor
+
+🔹 Technologies Used
+Frontend: React, Vite, TypeScript, Tailwind CSS, shadcn‑ui
+
+Backend: Node.js, Scapy integration for live traffic capture
+
+Model: ResNet deep learning architecture trained on NSL‑KDD dataset
+
+Deployment: Lovable platform with option for custom domain
+
+🔹 Academic Relevance
+This project is developed as part of a B.Tech Computer Science & Engineering academic submission, under the mentorship of Mr. Madhav Bansal.
+It demonstrates:
+
+Application of deep learning in cybersecurity
+
+Integration of AI model security metrics (adversarial robustness, integrity monitoring)
+
+
+A panel‑friendly dashboard for clear visualization and usability
 # Step 1: Clone the repository using the project's Git URL.
 git clone <YOUR_GIT_URL>
 
 # Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+cd SecureNet-AI-IDS
 
-# Step 3: Install the necessary dependencies.
+# Step 3: Install dependencies.
 npm i
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Step 4: Start the development server.
 npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
